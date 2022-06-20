@@ -1,3 +1,4 @@
+import { triggerAsyncId } from 'async_hooks';
 import { range } from 'd3-array';
 import { easeCubicInOut } from 'd3-ease';
 import { scaleLinear } from 'd3-scale';
@@ -7,18 +8,24 @@ import { transition } from 'd3-transition';
 import * as React from 'react';
 
 interface IRpmGaugeProps {
-  value: number;
+  rpm: number;
+  gear: string;
+  temp: number;
 }
 
 export class RpmGauge extends React.Component<IRpmGaugeProps> {
   private needle: Selection<SVGPathElement, number[][], HTMLElement, any>;
+  private gearText: Selection<SVGTextElement, unknown, HTMLElement, any>;
+  private tempText: Selection<SVGTextElement, unknown, HTMLElement, any>;
 
   public componentDidMount() {
     this.generate();
   }
 
   public componentDidUpdate() {
-    this.setValue(this.props.value, 10);
+    this.setRpm(this.props.rpm, 20);
+    this.setGear(this.props.gear);
+    this.setTemp(this.props.temp);
   }
 
   public render() {
@@ -31,15 +38,16 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
     const g = svg.append('g').attr('transform', `translate(200, 200)`);
     const colors = ['#D1D1D1', '#AFAFAF', '#FFFFFF', '#FD3104', '#171717', '#0A0A0A'];
     const ticksData = [
-      { value: 0 },
-      { value: 10 },
-      { value: 20 },
-      { value: 30 },
-      { value: 40 },
-      { value: 50 },
-      { value: 60 },
-      { value: 70 },
-      { value: 80 }
+      { rpm: 0 },
+      { rpm: 10 },
+      { rpm: 20 },
+      { rpm: 30 },
+      { rpm: 40 },
+      { rpm: 50 },
+      { rpm: 60 },
+      { rpm: 70 },
+      { rpm: 80 },
+      { rpm: 90 }
     ];
     const r = 200; // width / 2
 
@@ -70,7 +78,7 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
       .attr('d', circle)
       .attr('fill', 'url(#gradient1)')
       .attr('stroke', colors[1])
-      .attr('stroke-width', '7');
+      .attr('stroke-width', '5');
 
     // ticks
     const lg = svg.append('g').attr('class', 'label').attr('transform', `translate(${r}, ${r})`);
@@ -80,13 +88,13 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
 
     const ticks = ticksData
       .reduce((acc, curr, i) => {
-        if (curr.value === 0) {
+        if (curr.rpm === 0) {
           return acc;
         } else {
-          return acc.concat(range(curr.value - 10, curr.value + 10));
+          return acc.concat(range(curr.rpm - 10, curr.rpm + 10));
         }
       }, [])
-      .filter((d: number) => d % 2 === 0 && d <= 80);
+      .filter((d: number) => d % 2 === 0 && d <= 90);
 
     lg.selectAll('line')
       .data(ticks)
@@ -98,13 +106,13 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
       .attr('x2', 0)
       .attr('y2', (d: number) => (d % 5 === 0 ? '12' : '7'))
       .attr('transform', (d: number) => {
-        const scale = scaleLinear().range([0, 1]).domain([0, 80]);
+        const scale = scaleLinear().range([0, 1]).domain([0, 90]);
         const ratio = scale(d);
         const newAngle = minAngle + ratio * angleRange;
         const deviation = d % 5 === 0 ? 12 : 17;
         return `rotate(${newAngle}) translate(0, ${deviation - r})`;
       })
-      .style('stroke', (d: number) => (d >= 70 ? colors[3] : colors[2]))
+      .style('stroke', (d: number) => (d >= 80 ? colors[3] : colors[2]))
       .style('stroke-width', (d: number) => (d % 5 === 0 ? '3' : '1'));
 
     // tick texts
@@ -112,16 +120,16 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
       .data(ticksData)
       .enter()
       .append('text')
-      .attr('transform', (d: { value: number }) => {
-        const scale = scaleLinear().range([0, 1]).domain([0, 80]);
-        const ratio = scale(d.value);
+      .attr('transform', (d: { rpm: number }) => {
+        const scale = scaleLinear().range([0, 1]).domain([0, 90]);
+        const ratio = scale(d.rpm);
         const newAngle = this.degToRad(minAngle + ratio * angleRange);
         const y = (55 - r) * Math.cos(newAngle);
         const x = -1 * (52 - r) * Math.sin(newAngle);
         return `translate(${x}, ${y + 7})`;
       })
-      .text((d: { value: number }) => (d.value !== 0 ? d.value / 10 : ''))
-      .attr('fill', (d: { value: number }) => (d.value >= 70 ? colors[3] : colors[2]))
+      .text((d: { rpm: number }) => (d.rpm !== 0 ? d.rpm / 10 : ''))
+      .attr('fill', (d: { rpm: number }) => (d.rpm >= 80 ? colors[3] : colors[2]))
       .attr('font-size', '30')
       .attr('text-anchor', 'middle');
 
@@ -164,8 +172,8 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
       .attr('z-index', '10');
 
     // big text in center
-    tg.append('text')
-      .text('D3')
+    this.gearText = tg.append('text')
+      .text("1")
       .attr('font-size', '80')
       .attr('text-anchor', 'middle')
       .attr('fill', colors[2])
@@ -174,20 +182,21 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
       .style('position', 'absolute')
       .style('z-index', '10');
 
-    // rpm x 1000 text
-    tg.append('text')
-      .text('1/min x 1000')
-      .attr('font-size', '14')
-      .attr('text-anchor', 'middle')
-      .attr('fill', colors[2])
-      .attr('x', '0')
-      .attr('y', '85px')
-      .style('position', 'absolute')
-      .style('z-index', '10');
+    tg.append('text' )
+    .text('1/min x 1000')
+    .attr('font-size', '14')
+    .attr('text-anchor', 'middle')
+    .attr('fill', colors[2])
+    .attr('x', '0')
+    .attr('y', '85px')
+    .style('position', 'absolute')
+    .style('z-index', '10');
 
+    // rpm x 1000 text
+   
     // lights icon
     tg.append('image')
-      .attr('xlink:href', '/images/lights.svg')
+      .attr('xlink:href', './images/lights.svg')
       .attr('x', '10px')
       .attr('y', '134px')
       .attr('width', '35px')
@@ -195,7 +204,7 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
 
     // seat belt icon
     tg.append('image')
-      .attr('xlink:href', '/images/seat-belt.svg')
+      .attr('xlink:href', './images/seat-belt.svg')
       .attr('x', '56px')
       .attr('y', '120px')
       .attr('width', '30px')
@@ -203,11 +212,24 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
 
     // rear window defrost icon
     tg.append('image')
-      .attr('xlink:href', '/images/rear-window-defrost.svg')
+      .attr('xlink:href', './images/rear-window-defrost.svg')
       .attr('x', '95px')
       .attr('y', '95px')
       .attr('width', '30px')
       .attr('height', '30px');
+
+
+    // temp text
+    this.tempText = tg.append('text')
+    .text('50')
+    .attr('font-size', '32')
+    // .attr('text-anchor', 'middle')
+    .attr('fill', colors[2])
+    .attr('x', '122px')
+    .attr('y', '70px')
+    // .style('position', 'absolute')
+    .style('z-index', '10');
+      
   }
 
   private degToRad(deg: number): number {
@@ -215,21 +237,41 @@ export class RpmGauge extends React.Component<IRpmGaugeProps> {
   }
 
   private scale(value: number) {
-    const s = scaleLinear().range([0, 1]).domain([0, 6000]);
+    const s = scaleLinear().range([0, 1]).domain([0, 9000]);
     return s(value);
   }
 
-  private setValue(value: number, duration: number) {
+  private setRpm(rpm: number, duration: number) {
     const minAngle = -160;
     const maxAngle = 90;
     const angleRange = maxAngle - minAngle;
-    const angle = minAngle + this.scale(value) * angleRange;
+    const angle = minAngle + this.scale(rpm) * angleRange;
 
+    
     transition
       .call(this.needle)
       .select(() => this.needle.node())
       .duration(duration)
       .ease(easeCubicInOut)
       .attr('transform', `rotate(${angle})`);
+  }
+
+  private setGear(gear: string) {
+    if (gear == "0") {
+      gear = "N"
+    }
+    transition
+    .call(this.gearText)
+    .select(() => this.gearText.node())
+    // .attr('fill', color)
+    .text(gear)
+  }
+
+  private setTemp(temp: number) {
+    transition
+    .call(this.tempText)
+    .select(() => this.tempText.node())
+    // .attr('fill', color)
+    .text(temp)
   }
 }
